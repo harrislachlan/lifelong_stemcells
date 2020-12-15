@@ -8,3 +8,5 @@ The count matrix can be accessed from the **Gene Expression Omnibus** [GSE159768
 Data shared by [Lachlan Ian Harris](https://scholar.google.com/citations?user=LClbRoQAAAAJ&hl=en) and [The Guillemot Lab](https://www.crick.ac.uk/research/labs/francois-guillemot) at The Francis Crick Institute, London, UK.
 
 Link to publication coming soon. 
+
+![plot](./lifelong_stemcells/readme.png)
