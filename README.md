@@ -9,4 +9,4 @@ Data shared by [Lachlan Ian Harris](https://scholar.google.com/citations?user=LC
 
 Link to publication coming soon. 
 
-![plot](./lifelong_stemcells/readme.png)
+![plot](./readme.png)
