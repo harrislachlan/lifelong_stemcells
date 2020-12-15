@@ -1,0 +1,41 @@
+# Main text Figure 5
+# Load packages and define data ----
+library(reticulate)
+library(umap)
+library(Matrix)
+library(lubridate)
+library(glue)
+library(RColorBrewer)
+library(gridExtra)
+library(gdata)
+library(slingshot)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(DOSE)
+library(gridExtra)
+library(cowplot)
+library(SummarizedExperiment)
+library(Seurat)
+library(tidyverse)
+
+
+# Differential gene expression graphs of resting, dormant and active NSCs ----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+DefaultAssay(object = nsc.integrated) <- "RNA"
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA")
+nsc.integrated$quiescence <- as.factor(nsc.integrated$quiescence)
+nsc.integrated$quiescence <- factor(nsc.integrated$quiescence, levels = c("dormant", "resting", "active"))
+V1 <- VlnPlot(nsc.integrated, features = "Mcm2", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V2 <- VlnPlot(nsc.integrated, features = "Mcm6", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V3 <- VlnPlot(nsc.integrated, features = "Mcm3", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V4 <- VlnPlot(nsc.integrated, features = "Id4", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V5 <- VlnPlot(nsc.integrated, features = "Clu", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V6 <- VlnPlot(nsc.integrated, features = "Apoe", group.by = "quiescence", cols = c("blue4", "cyan1", "red"),  pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V7 <- VlnPlot(nsc.integrated, features = "Ran", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V8 <- VlnPlot(nsc.integrated, features = "Rps17", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V9 <- VlnPlot(nsc.integrated, features = "Rpl5", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V <- arrangeGrob(V1, V2, V3, V4, V5, V6, V7, V8, V9, nrow = 3)
+plot_grid(V1, V2, V3, V4, V5, V6, V7, V8, V9, ncol = 5)
+ggsave(filename = "plots/resting_vs_dormant_DGE.png", V, width = 8, height = 8, scale = 1)
+rm(list = ls())
