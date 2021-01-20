@@ -27,17 +27,15 @@ Idents(nsc.integrated) <- nsc.integrated$quiescence
 nsc.integrated <- subset(nsc.integrated, idents = "active", invert = TRUE)
 nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE)
 
-# How many genes are there in the SCT scale.data slot, used for FDR correction below. 
-length(rownames(nsc.integrated@assays$SCT@scale.data))
-
 # Determine sig genes and FDR adjust p-value
 Idents(nsc.integrated) <- nsc.integrated$Age
 sig_genes_age <- FindMarkers(nsc.integrated, assay = "SCT", slot = "scale.data", ident.1 = "6mo",
-     ident.2 = "1mo", min.pct = 0.2, min.diff.pct = 0.0, 
-     logfc.threshold = 0, test.use = "t")
+                             ident.2 = "1mo", min.pct = 0.0, 
+                             logfc.threshold = 0, test.use = "t")
 sig_genes_pvalue <- sig_genes_age$p_val
-FDR <- p.adjust(sig_genes_pvalue, "fdr", n = 13540)
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
 sig_genes_age$p_val_adj <- FDR
+sig_genes_age <- sig_genes_age %>% filter(pct.1 >= 0.2|pct.2>= 0.2)
 
 # save spreadsgeet
 setwd("spreadsheets/")
@@ -52,17 +50,16 @@ remove(list = ls())
 load("nsc.RData")
 nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE)
 
-# How many genes are there in the SCT scale.data slot, used for FDR correction below. 
-length(rownames(nsc.integrated@assays$SCT@scale.data))
-
 # Determine sig genes
 Idents(nsc.integrated) <- nsc.integrated$quiescence
 sig_genes_resting_dormant <- FindMarkers(nsc.integrated, assay = "SCT", ident.1 = "resting",
-                         ident.2 = "dormant", slot = "scale.data", min.pct = 0.2, min.diff.pct = 0.0, 
+                         ident.2 = "dormant", slot = "scale.data", min.pct = 0.0,
                          logfc.threshold = 0, test.use = "t")
 sig_genes_pvalue <- sig_genes_resting_dormant$p_val
-FDR <- p.adjust(sig_genes_pvalue, "fdr", n = 14786)
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
 sig_genes_resting_dormant$p_val_adj <- FDR
+sig_genes_resting_dormant <- sig_genes_resting_dormant %>% filter(pct.1 >= 0.2|pct.2 >= 0.2)
+
 setwd("spreadsheets/")
 write.csv(sig_genes_resting_dormant, "sig_genes_resting_dormant.csv")
 setwd("..")
@@ -74,18 +71,15 @@ remove(list = ls())
 load("nsc.RData")
 nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE)
 
-# How many genes are there in the SCT scale.data slot, used for FDR correction below. 
-length(rownames(nsc.integrated@assays$SCT@scale.data))
-
 # Determine sig genes
 Idents(nsc.integrated) <- nsc.integrated$quiescence
 sig_genes_resting_active <- FindMarkers(nsc.integrated, assay = "SCT", ident.1 = "resting",
-                         ident.2 = "active", slot = "scale.data", min.pct = 0.2, 
-                         min.diff.pct = 0.0, logfc.threshold = 0, test.use = "t")
-
+                         ident.2 = "active", slot = "scale.data", min.pct = 0.0, 
+                         logfc.threshold = 0, test.use = "t")
 sig_genes_pvalue <- sig_genes_resting_active$p_val
-FDR <- p.adjust(sig_genes_pvalue, "fdr", n = 14786)
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
 sig_genes_resting_active$p_val_adj <- FDR
+sig_genes_resting_active <- sig_genes_resting_active %>% filter(pct.1 >= 0.2| pct.2 >= 0.2)
 
 setwd("spreadsheets/")
 write.csv(sig_genes_resting_active , "sig_genes_resting_active.csv")
