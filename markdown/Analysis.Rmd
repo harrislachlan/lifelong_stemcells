@@ -1,0 +1,1271 @@
+---
+title: "Coordinated changes in cellular behaviour ensures the lifelong maintenance of the hippocampal stem cell population"
+author: "Lachlan Harris"
+date: "20/01/2021"
+output: 
+  html_document:
+    keep_md: false
+    toc: true 
+    toc_float: true
+    toc_depth: 4
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning = FALSE, message = FALSE)
+```
+
+## Project background
+
+Neural stem cell numbers fall rapidly in the hippocampus of juvenile mice but stabilise during adulthood, ensuring lifelong hippocampal neurogenesis. We show that this reduction in stem cell depletion rate in young adults is the result of coordinated changes in stem cell behaviour. In particular, while proliferating neural stem cells in juveniles differentiate rapidly, they increasingly return to a resting state of shallow quiescence and progress through additional self-renewing divisions in adulthood. Single-cell transcriptomic, modelling and label-retention analyses indicate that resting cells have a higher activation rate and greater contribution to neurogenesis than dormant cells, which have not left quiescence. These progressive changes in stem cell behaviour result from reduced expression of the pro-activation protein ASCL1 due to increased post-translational degradation. These cellular mechanisms help reconcile current contradictory models of hippocampal NSC dynamics and may contribute to the different rates of decline of hippocampal neurogenesis in mammalian species including humans.
+
+## Experimental design 
+
+In vivo hippocampal neural stem cells were purified through a transgenic mouse line. The mouse line expressed Nestin-GFP, and was injected with tamoxifen for 6 days, before culling on the 8th day to recombine tdTomato expression in proliferating cells, using the Ki67-creERT2 transgene. Cells were analysed by 10X-Genomics scRNA-seq. 8 samples were anlaysed in total, across 3 age groups: 1 month, 2 months and 6-8 months old. In total dataset there are 26,036 cells of which 2,947 are hippocampal neural stem cells.
+
+## Data access
+
+The count matrix can be accessed from the Gene Expression Omnibus [GSE159768](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE159768) by downloading the barcodes.tsv.gz, features.tsv.gz, matrix.mtx.gz files. Please delete the GSE159768 file prefix before reading into R using Seurat::Read10X function, as in script_01. Raw FASTQ files are also available.
+
+Data shared by [Lachlan Ian Harris](https://scholar.google.com/citations?user=LClbRoQAAAAJ&hl=en) and [The Guillemot Lab](https://www.crick.ac.uk/research/labs/francois-guillemot) at The Francis Crick Institute, London, UK.
+
+
+## Load packages
+
+```{r 01, cache=FALSE}
+library(reticulate)
+library(umap)
+library(Matrix)
+library(lubridate)
+library(glue)
+library(RColorBrewer)
+library(gridExtra)
+library(gdata)
+library(slingshot)
+library(clusterProfiler)
+library(org.Mm.eg.db)
+library(DOSE)
+library(gridExtra)
+library(cowplot)
+library(SummarizedExperiment)
+library(Seurat)
+library(tidyverse)
+library(DT)
+```
+
+```{r 02 save session info, echo=FALSE, cache=FALSE}
+today=lubridate::today()
+sink(glue("sessionInfo_{today}.txt"))
+sessionInfo()
+sink()
+rm(today)
+```
+
+## Read in data matrix, add metadata
+
+Read in data. If downloaded the count matrix from [GEO](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE159768) please delete the file prefixes "GSE159768_". This count matrix is already mapped to the custom genome, which is required to produce the figures.
+
+```{r 03, cache=TRUE}
+# Read in and create Seurat object,  if downloaded from GEO, delete file prefixes "GSE159768_". ----
+input_folder <- "data/"
+seurat_object <- Read10X(data.dir = input_folder)
+seurat_object <- CreateSeuratObject(counts = seurat_object, project = "Aggregate")
+
+# Add GEMgroup ----
+seurat_object@meta.data$GEMgroup[grepl("-1", rownames(seurat_object@meta.data))] <- "1"
+seurat_object@meta.data$GEMgroup[grepl("-2", rownames(seurat_object@meta.data))] <- "2"
+seurat_object@meta.data$GEMgroup[grepl("-3", rownames(seurat_object@meta.data))] <- "3"
+seurat_object@meta.data$GEMgroup[grepl("-4", rownames(seurat_object@meta.data))] <- "4"
+seurat_object@meta.data$GEMgroup[grepl("-5", rownames(seurat_object@meta.data))] <- "5"
+seurat_object@meta.data$GEMgroup[grepl("-6", rownames(seurat_object@meta.data))] <- "6"
+seurat_object@meta.data$GEMgroup[grepl("-7", rownames(seurat_object@meta.data))] <- "7"
+seurat_object@meta.data$GEMgroup[grepl("-8", rownames(seurat_object@meta.data))] <- "8"
+
+# Add Batch no - got this from 10X website ----
+seurat_object@meta.data$Batch[grepl("-1", rownames(seurat_object@meta.data))] <- "1"
+seurat_object@meta.data$Batch[grepl("-2|-3", rownames(seurat_object@meta.data))] <- "2"
+seurat_object@meta.data$Batch[grepl("-4", rownames(seurat_object@meta.data))] <- "3"
+seurat_object@meta.data$Batch[grepl("-5", rownames(seurat_object@meta.data))] <- "4"
+seurat_object@meta.data$Batch[grepl("-6", rownames(seurat_object@meta.data))] <- "5"
+seurat_object@meta.data$Batch[grepl("-7", rownames(seurat_object@meta.data))] <- "6"
+seurat_object@meta.data$Batch[grepl("-8", rownames(seurat_object@meta.data))] <- "7"
+
+# Add Age of samples ----
+seurat_object@meta.data$Age[grepl("-1", rownames(seurat_object@meta.data))] <- "1mo"
+seurat_object@meta.data$Age[grepl("-2|-3|-4|-5", rownames(seurat_object@meta.data))] <- "2mo"
+seurat_object@meta.data$Age[grepl("-6|-7|-8", rownames(seurat_object@meta.data))] <- "6mo"
+
+# GFP and tdtomato or combined ----
+seurat_object@meta.data$cells[grepl("-1|-4|-5|-6|-7|-8", rownames(seurat_object@meta.data))] <- "combined"
+seurat_object@meta.data$cells[grepl("-2", rownames(seurat_object@meta.data))] <- "tdTomato"
+seurat_object@meta.data$cells[grepl("-3", rownames(seurat_object@meta.data))] <- "Gfp"
+
+# Add 10x chemistry ----
+seurat_object@meta.data$Chemistry[grepl("-1|-6|-7|-8", rownames(seurat_object@meta.data))] <- "V3"
+seurat_object@meta.data$Chemistry[grepl("-2|-3|-4|-5", rownames(seurat_object@meta.data))] <- "V2"
+
+# Add MT content ----
+seurat_object[["percentMito"]] <- PercentageFeatureSet(seurat_object, pattern = "^mt-")
+
+# Add sex ----
+SexMatrix1 <- t(GetAssayData(seurat_object, assay = "RNA", slot = "counts"))
+SexMatrix1 <- as.data.frame(SexMatrix1[ , c("Ddx3y","Uty","Eif2s3y","Xist","Tsix") ]) 
+seurat_object[["sexScore"]] <- (SexMatrix1$Ddx3y + SexMatrix1$Uty + SexMatrix1$Eif2s3y) - (SexMatrix1$Xist + SexMatrix1$Tsix)  
+seurat_object[["Sex"]] <- ifelse(seurat_object[["sexScore"]] < 0, "Female", "Male") 
+
+# End Script 1 ----
+
+```
+
+## Subset data matrix to remove multiplets or poor quality cells
+```{r 04, echo=FALSE}
+print(glue("Core dataset contains {length(rownames(seurat_object@meta.data))} cells prior to subsetting"))
+```
+
+```{r 05, cache=TRUE, fig.show='hold'}
+# Removedoublets with oligos ----
+seurat_object <- subset(seurat_object, subset = Mog > 4 & Aldoc > 4, slot = 'counts', invert = TRUE) %>%
+        subset(subset = Mog > 4 & C1qc > 4, slot = 'counts', invert = TRUE) %>%
+        subset(subset = Mog > 4 & Cldn5 > 4, slot = 'counts', invert = TRUE) %>%
+        subset(subset = Mog > 4 & Stmn2 > 4, slot = 'counts', invert = TRUE) %>%
+        # Removedoublets with astro
+        subset(subset = Aldoc > 4 & C1qc > 4, slot = 'counts', invert = TRUE) %>%
+        subset(subset = Aldoc > 4 & Cldn5 > 4, slot = 'counts', invert = TRUE) %>%
+        subset(subset = Aldoc > 4 & Stmn2 > 4, slot = 'counts', invert = TRUE) %>%
+        # Removedoublets with microglia
+        subset(subset = C1qc > 4 & Cldn5 > 4, slot = 'counts', invert = TRUE)  %>%
+        subset(subset = C1qc > 4 & Stmn2 > 4, slot = 'counts', invert = TRUE)  %>%
+        subset(subset = Cldn5 > 4 & Stmn2 > 4, slot = 'counts', invert = TRUE)
+
+# Set thresholds for gene and mt content ----
+FeatureScatter(seurat_object, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", group.by = "Chemistry") 
+VlnPlot(seurat_object, features = "percentMito", group.by = "GEMgroup", same.y.lims = TRUE, pt.size = 0.1) + ylim(0, 50)
+mitoHi <- 10
+nGeneLo <- 500
+seurat_object <- subset(seurat_object, subset = nFeature_RNA > nGeneLo & percentMito < mitoHi)
+
+# Visually inspect that filtering worked ----
+VlnPlot(seurat_object, features = "percentMito", group.by = "GEMgroup", same.y.lims = TRUE, pt.size = 0.1) + ylim(0, 50)
+FeatureScatter(seurat_object, feature1 = "nCount_RNA", feature2 = "nFeature_RNA", group.by = "Chemistry") + ylim(0, 1000)
+```
+
+```{r 06, echo=FALSE}
+print(glue("After removal based on doublets/low gene count/high mt content there are {length(rownames(seurat_object@meta.data))} cells remaining"))
+# End Script 2 ----
+```
+
+
+## 1st iteration (all data)
+Purpose: use SCTransform, integration anchors, UMAP to visualise data.
+
+The first iteration of SCTransform and data integration is resource heavy. 
+However, can be done locally in ~ 30-45 minutes.
+
+```{r 07, eval=FALSE}
+# Split object by GEMgroup and SCTransform ----
+seurat_object.list <- SplitObject(seurat_object, split.by = "GEMgroup")
+for (i in 1:length(seurat_object.list)) {
+  seurat_object.list[[i]] <- SCTransform(seurat_object.list[[i]], 
+                  verbose = FALSE, return.only.var.genes = FALSE)
+}
+
+# Select features for to identify anchors ----
+seurat_object.features <- 
+  SelectIntegrationFeatures(object.list = seurat_object.list, nfeatures = 5000)
+seurat_object.list <- 
+  PrepSCTIntegration(object.list = seurat_object.list, anchor.features = seurat_object.features, 
+                     verbose = FALSE)
+
+# Identify anchors between datasets to integrate ----
+seurat_object.anchors <- FindIntegrationAnchors(object.list = seurat_object.list, normalization.method = "SCT", 
+                                               anchor.features = seurat_object.features, verbose = FALSE)
+seurat_object.integrated <- IntegrateData(anchorset = seurat_object.anchors, normalization.method = "SCT", 
+                                         verbose = FALSE)
+
+# Visualisation/clustering ----
+seurat_object.integrated <- RunPCA(seurat_object.integrated, npcs = 40, verbose = FALSE) %>% 
+  RunUMAP(dims = 1:30) %>%
+  FindNeighbors(reduction = "pca", dims = 1:30) %>%
+  FindClusters(resolution = 0.3)
+ElbowPlot(seurat_object.integrated, ndims = 30, reduction = "pca")
+DimPlot(seurat_object.integrated, reduction = "umap", label = TRUE)
+
+# Save data ----
+gdata::keep(seurat_object.integrated, sure = TRUE)
+save.image(file="all_data_all_clusters.RData")
+rm(list = ls())
+
+# End Script 3 ----
+```
+
+### Visualisation/subsetting
+
+```{r 08}
+# Load data —---
+rm(list = ls())
+load("all_data_all_clusters.Rdata")
+
+# Create list of all numbered cluster names, replace old names for the clusters of NSCs and IPCs, check labelling ———
+current.cluster.ids <- c("0","1","2","3","4","5","6","7","8","9","10","11","12", "13", "14", "15")
+new.cluster.ids <- c("0","1","2","NSC","4","IPC","6","7","8","9","10","11","12","13", "14", "15")
+seurat_object.integrated@active.ident <- plyr::mapvalues(x = seurat_object.integrated@active.ident, from = current.cluster.ids, to = new.cluster.ids)
+DimPlot(seurat_object.integrated, reduction = "umap", label = TRUE)
+
+# Remove all cells that are not in NSC and IPC cluster —---
+nsc_ipc <- subset(x = seurat_object.integrated, idents = c("NSC", "IPC"))
+DimPlot(nsc_ipc, reduction = "umap", label = TRUE)
+```
+
+```{r 09, echo=FALSE}
+print(glue("After keeping only the NSC and IPC clusters there are {length(rownames(seurat_object.integrated@meta.data))} cells remaining"))
+rm(seurat_object.integrated)
+```
+
+
+## 2nd iteration (NSCs & IPCs)
+The second iteration of SCTransform and data integration is NOT resource heavy. Done locally in 5-10 minutes. 
+
+```{r 10, eval=TRUE}
+# Split object by Batch and SCTransform. 
+#Split by batch as too few cells from GEMgroup 2 (tdTomato+ only cells) are present to split by GEMgroup ———-
+options(future.globals.maxSize= 2891289600)
+nsc_ipc.list <- SplitObject(nsc_ipc, split.by = "Batch")
+for (i in 1:length(nsc_ipc.list)) {
+  nsc_ipc.list[[i]] <- SCTransform(nsc_ipc.list[[i]], 
+return.only.var.genes = FALSE, verbose = FALSE)
+}
+
+# Select features for identification of anchors and downstream integration ———-
+nsc_ipc.features <- SelectIntegrationFeatures(object.list = nsc_ipc.list, nfeatures = 5000)
+nsc_ipc.list <- PrepSCTIntegration(object.list = nsc_ipc.list, anchor.features = nsc_ipc.features, 
+                                         verbose = FALSE)
+
+# Identify anchors —---
+nsc_ipc.anchors <- FindIntegrationAnchors(object.list = nsc_ipc.list, normalization.method = "SCT", 
+                                                anchor.features = nsc_ipc.features, verbose = FALSE)
+nsc_ipc.integrated <- IntegrateData(anchorset = nsc_ipc.anchors, normalization.method = "SCT", 
+                                          verbose = FALSE)
+
+# Visualisation/clustering ———-
+nsc_ipc.integrated <- RunPCA(nsc_ipc.integrated, verbose = FALSE) %>%
+        RunUMAP(dims = 1:25) %>%
+        FindNeighbors(reduction = "pca", dims = 1:25) %>%
+        FindClusters(resolution = 0.7)
+ElbowPlot(nsc_ipc.integrated, ndims = 30)
+
+```
+
+### Visualisation/subsetting
+
+```{r 11, eval=TRUE}
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE)
+# Removal of GFP-negative astrocytes that come from GEMgroup 2 (10% tdtomato+ cells + 90% double negative cells) ———-
+DefaultAssay(nsc_ipc.integrated) <- "RNA"
+nsc_ipc.integrated <- subset(x = nsc_ipc.integrated, subset = S100b > 0 & eGFP == 0, slot = 'counts', invert = TRUE)
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE)
+
+# Removal of small doublet clusters ----
+nsc_ipc.integrated <- subset(x = nsc_ipc.integrated, idents = c("10", "11"), invert = TRUE)
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE)
+
+# Save dataset of nscs and ipcs ----
+gdata::keep(nsc_ipc.integrated, sure = TRUE)
+save.image(file="nsc_ipc.RData")
+```
+
+
+### Cell-cycle classification/subsetting
+
+```{r 12, cache=TRUE}
+# Add cell-cycle classification of G2/S/M (G0/G1 distinction not made). 
+# Classification appears to work better on the raw counts data in RNA slot —---
+
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.gene
+s.genes <- tolower(s.genes)
+g2m.genes <- tolower(g2m.genes)
+s.genes <- R.utils::capitalize(s.genes)
+g2m.genes <- R.utils::capitalize(g2m.genes)
+DefaultAssay(nsc_ipc.integrated) <- "RNA"
+nsc_ipc.integrated <- CellCycleScoring(nsc_ipc.integrated, s.features = s.genes, g2m.features = g2m.genes, set.ident = FALSE)
+nsc_ipc.integrated$CC.Difference <- nsc_ipc.integrated$S.Score - nsc_ipc.integrated$G2M.Score
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = FALSE, group.by = "Phase")
+
+# Remove all cells that are not in obvious NSC clusters ———
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE)
+toremove <- subset(nsc_ipc.integrated, idents = c("2", "4", "6", "7"))
+
+# Define which of these you'd definitely like to keep as stem cells 
+#that have been forced together with IPCs due to effect of cell-cycle
+Idents(toremove) <- toremove$Chemistry
+tokeep1 <- subset(toremove, idents = "V2")
+tokeep1 <- subset(tokeep1, subset = Neurod2 < 1)
+tokeep1 <- subset(tokeep1, subset = Dcx < 1)
+tokeep1 <- subset(tokeep1, subset = Hopx|Apoe > 5)
+tokeep2 <- subset(toremove, idents = "V3")
+tokeep2 <- subset(tokeep2, subset = Neurod2 < 1)
+tokeep2 <- subset(tokeep2, subset = Dcx < 1)
+tokeep2 <- subset(tokeep2, subset = Hopx|Apoe > 11)
+
+# Visualise subsetting —---
+DimPlot(tokeep2, reduction = "umap", label = TRUE)
+DimPlot(tokeep1, reduction = "umap", label = TRUE, group.by = "Chemistry")
+DimPlot(toremove, reduction = "umap", label = TRUE)
+
+# Isolate NSC clusters, and merge with NSCs that fell in with cycling cells —---
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE)
+nsc_ipc.integrated <- subset(nsc_ipc.integrated, idents = c('0', "1", "3", "5", "8", "9"))
+nsc.integrated <- merge(nsc_ipc.integrated, tokeep1)
+nsc.integrated <- merge(nsc.integrated, tokeep2)
+```
+
+## 3rd iteration (NSCs)
+The third iteration of SCTransform and data integration is NOT resource heavy. Done locally in 5 minutes. 
+
+```{r 13, cache=TRUE}
+# Split object by Chemistry (main technical effect: splitting by Batch/GEMgroup dampens biological differences) —---
+options(future.globals.maxSize= 2891289600)
+nsc.list <- SplitObject(nsc.integrated , split.by = "Chemistry")
+for (i in 1:length(nsc.list)) {
+  nsc.list[[i]] <- SCTransform(nsc.list[[i]], return.only.var.genes = FALSE,  verbose = FALSE)
+}
+
+# Select features for identification of anchors and downstream integration ———-
+nsc.features <- SelectIntegrationFeatures(object.list = nsc.list, nfeatures = 5000)
+nsc.list <- PrepSCTIntegration(object.list = nsc.list, anchor.features = nsc.features, 
+                                     verbose = FALSE)
+
+# Identify anchors —---
+nsc.anchors <- FindIntegrationAnchors(object.list = nsc.list, normalization.method = "SCT", 
+                                            anchor.features = nsc.features, verbose = FALSE)
+nsc.integrated <- IntegrateData(anchorset = nsc.anchors, normalization.method = "SCT", 
+                                      verbose = FALSE)
+
+# Visualisation/clustering ——--
+nsc.integrated <- RunPCA(nsc.integrated, ndims.print = c(1:10), verbose = FALSE) %>%
+        RunUMAP(dims = 1:25) %>%
+        FindNeighbors(reduction = "pca", dims = 1:25) %>%
+        FindClusters(resolution = 0.7)
+ElbowPlot(nsc.integrated, ndims = 30)
+```
+
+### Visualisation/subsetting
+```{r 14}
+# Confirm these are doublet clusters and remove ——--
+DimPlot(nsc.integrated, reduction = "umap", label = TRUE)
+nine <- FindMarkers(nsc.integrated, ident.1 = "9", ident.2 = "0", only.pos = TRUE, test.use = "t", min.diff.pct = 0.2)
+ten <- FindMarkers(nsc.integrated, ident.1 = "10", ident.2 = "0", only.pos = TRUE, test.use = "t", min.diff.pct = 0.2)
+eleven <- FindMarkers(nsc.integrated, ident.1 = "11", ident.2 = "0", only.pos = TRUE, test.use = "t", min.diff.pct = 0.2)
+nsc.integrated <- subset(nsc.integrated, idents = c("9", "10", "11"), invert = TRUE)
+DimPlot(nsc.integrated, reduction = "umap", label = TRUE)
+```
+
+```{r}
+print(glue("After keeping only the NSCs there are {length(rownames(nsc.integrated@meta.data))} cells remaining"))
+```
+
+
+```{r 15}
+# Save ——--
+gdata::keep(nsc.integrated, sure = TRUE)
+save.image(file="nsc.RData")
+# End Script 4 —---
+```
+
+
+
+
+## Define quiescent states
+```{r 16}
+# Load data ----
+load("nsc.RData")
+
+# Identify cells that express detectable levels of genes stably, highly expressed across G1 & S-phase ----
+
+DefaultAssay(nsc.integrated) <- "RNA"
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA")
+nsc.integrated[["percentMCM2"]]<- PercentageFeatureSet(nsc.integrated, pattern = "Mcm2")
+nsc.integrated[["percentMCM3"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Mcm3")
+nsc.integrated[["percentMCM4"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Mcm4")
+nsc.integrated[["percentMCM5"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Mcm5")
+nsc.integrated[["percentMCM6"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Mcm6")
+nsc.integrated[["percentMCM7"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Mcm7")
+nsc.integrated[["percentCCNE1"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Ccne1")
+nsc.integrated[["percentCCNE2"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Ccne2")
+nsc.integrated[["percentPCNA"]] <- PercentageFeatureSet(nsc.integrated, pattern = "Pcna")
+
+# Binarise as positive or negative
+nsc.integrated@meta.data$'percentMCM2' <- ifelse(test = nsc.integrated@meta.data$'percentMCM2' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentMCM3' <- ifelse(test = nsc.integrated@meta.data$'percentMCM3' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentMCM4' <- ifelse(test = nsc.integrated@meta.data$'percentMCM4' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentMCM5' <- ifelse(test = nsc.integrated@meta.data$'percentMCM5' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentMCM6' <- ifelse(test = nsc.integrated@meta.data$'percentMCM6' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentMCM7' <- ifelse(test = nsc.integrated@meta.data$'percentMCM7' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentCCNE1' <- ifelse(test = nsc.integrated@meta.data$'percentCCNE1' > 0, yes = 1, no = 0) 
+nsc.integrated@meta.data$'percentCCNE2' <- ifelse(test = nsc.integrated@meta.data$'percentCCNE2' > 0, yes = 1, no = 0)
+nsc.integrated@meta.data$'percentPCNA' <- ifelse(test = nsc.integrated@meta.data$'percentPCNA' > 0, yes = 1, no = 0)
+
+# Add this index together; max value 9, min value is 0 ----
+nsc.integrated[["G1_index"]] <- (nsc.integrated@meta.data$'percentMCM2' 
+                                + nsc.integrated@meta.data$'percentMCM3'
+                                + nsc.integrated@meta.data$'percentMCM4' 
+                                + nsc.integrated@meta.data$'percentMCM5'
+                                + nsc.integrated@meta.data$'percentMCM6'
+                                + nsc.integrated@meta.data$'percentMCM7'
+                                +nsc.integrated@meta.data$'percentCCNE1'
+                                +nsc.integrated@meta.data$'percentCCNE2'
+                                +nsc.integrated@meta.data$'percentPCNA')
+
+
+# Define cell as active if expresses > 1 index gene sequenced using V2 or >3 index gene if sequenced using V3 ----
+nsc.integrated[["G1"]] <- ifelse(nsc.integrated[["G1_index"]] > 1 & nsc.integrated@meta.data$'Chemistry' == "V2", yes = "1", no = "0")
+nsc.integrated[["G1"]] <- ifelse(nsc.integrated[["G1_index"]] > 3 & nsc.integrated@meta.data$'Chemistry' == "V3", yes = "1", no = nsc.integrated@meta.data$'G1')
+nsc.integrated@meta.data[["G1"]] <- as.numeric(nsc.integrated@meta.data[["G1"]])
+
+
+# Scoring whether a cell is tdTomato+ or tdTomato negative. Add WPRE and bGHpolyA together (both elements of tdTomato recombined site) for more robustness and sensitivity of td detection
+rnagenes <- t(GetAssayData(nsc.integrated, assay = "RNA", slot = "counts"))
+rnagenes <- as.data.frame(rnagenes[ , c("WPRE","tdTomatoLoxP", "bGHpolyA")])
+rnagenes$td <- rnagenes$WPRE + rnagenes$bGHpolyA
+nsc.integrated <- AddMetaData(object = nsc.integrated, metadata = rnagenes)
+
+# Enforcing of thresholds ----
+# V3 of kit - if count of td 4 or more and tdtomatoloxp less than 8 than cell is tdTomato positive. 
+nsc.integrated@meta.data$'tdthresh' <- ifelse(test = nsc.integrated@meta.data$'td' > 3 & nsc.integrated@meta.data$'Chemistry' == "V3", yes = nsc.integrated@meta.data$'td', no = 0) 
+nsc.integrated@meta.data$'tdthresh' <- ifelse(test = nsc.integrated@meta.data$'tdTomatoLoxP' > 7 & nsc.integrated@meta.data$'Chemistry' == "V3", yes = 0, no = nsc.integrated@meta.data$'tdthresh') 
+# V2 of kit - if count of td 2 or more and tdtomatoloxp less than 4 than cell is tdTomato positive. 
+nsc.integrated@meta.data$'tdthresh' <- ifelse(test = nsc.integrated@meta.data$'td' > 1 & nsc.integrated@meta.data$'Chemistry' == "V2", yes = nsc.integrated@meta.data$'td', no = nsc.integrated@meta.data$'tdthresh') 
+nsc.integrated@meta.data$'tdthresh' <- ifelse(test = nsc.integrated@meta.data$'tdTomatoLoxP' > 3 & nsc.integrated@meta.data$'Chemistry' == "V2", yes = 0, no = nsc.integrated@meta.data$'tdthresh')
+
+# Binarisation of tdTomato thresholds, td pos = 1 or td neg = 0 
+nsc.integrated@meta.data$'tdTomato+' <- ifelse(test = nsc.integrated@meta.data$'tdthresh' > 0 , yes = 1, no = 0)
+
+
+# Adding metadata to define dormant (tdtomato- & quiescent), resting (tdtomato+ & quiescent) and active (tdtomtato+ or - & active) ----
+nsc.integrated[["quiescence"]] <- (nsc.integrated@meta.data$'G1' + nsc.integrated@meta.data$'tdTomato+')
+nsc.integrated[["quiescence"]] <- ifelse(nsc.integrated@meta.data$'tdTomato+' == 0 & nsc.integrated@meta.data$'G1' < 1, 
+                                          yes = 'dormant', no = nsc.integrated@meta.data$'quiescence')
+nsc.integrated[["quiescence"]] <- ifelse(nsc.integrated@meta.data$'tdTomato+' > 0 & nsc.integrated@meta.data$'G1' < 1, 
+                                         yes = 'resting', no = nsc.integrated@meta.data$'quiescence')
+nsc.integrated[["quiescence"]] <- ifelse(nsc.integrated@meta.data$'tdTomato+' <= 1 & nsc.integrated@meta.data$'G1' > 0, 
+                                         yes = 'active', no = nsc.integrated@meta.data$'quiescence')
+
+# Next two lines ensure no cell scored a G2M or S by CellCycleScoring function in Seurat are accidentally called G0 by my thresholding ----
+nsc.integrated[["quiescence"]] <- ifelse(nsc.integrated$Phase == "G2M", yes = 'active',
+                                          no = nsc.integrated@meta.data$'quiescence')
+nsc.integrated[["quiescence"]] <- ifelse(nsc.integrated$Phase == "S", yes = 'active',
+                                          no = nsc.integrated@meta.data$'quiescence')
+
+# Define G1/G0 cells into plot ----
+nsc.integrated[["Phase"]] <- ifelse(nsc.integrated$quiescence == "dormant"|nsc.integrated$quiescence == "resting",
+                                    yes = 'Go', no = nsc.integrated$Phase)
+nsc.integrated$Phase <- as.character(nsc.integrated$Phase)
+DimPlot(nsc.integrated, group.by = "Phase")
+DimPlot(nsc.integrated, group.by = "quiescence")
+
+```
+
+
+## Temporal ordering
+```{r 17}
+# Purpose: remove 3 outlier cells that will artificially elongate pseudotime, in Slingshot analysis below. 
+nsc.integrated <- 
+  subset(nsc.integrated, cells = c("GGGCCATCAGTCCCGA-7", 
+                                   "CTGATCCAGCGCCTAC-8", 
+                                   "GTCTCGTCACCACCAG-3"),
+         invert = TRUE)
+
+# Save data ----
+gdata::keep(nsc.integrated, sure = TRUE)
+save.image(file="nsc.RData")
+
+# Slingshot of all NSCs ----
+nsc.integrated <- NormalizeData(nsc.integrated)
+seurat <- nsc.integrated
+seurat.sce <- as.SingleCellExperiment(seurat, assay = "RNA")
+DimPlot(nsc.integrated)
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+Age <- seurat.sce.sling@colData@listData$Age
+quiescence <- seurat.sce.sling@colData@listData$quiescence
+pseudotimevalues <- cbind(pseudotimevalues, Age)
+pseudotimevalues <- cbind(pseudotimevalues, quiescence)
+
+# Save cell ordering
+dir.create("spreadsheets")
+setwd('spreadsheets/')
+write.csv(pseudotimevalues, file = "pseudotime_NSC.csv")
+setwd("..")
+
+
+# End Script 5
+```
+
+```{r}
+print(glue("After removing three NSCs that elongated pseudotime there are {length(rownames(nsc.integrated@meta.data))} cells remaining"))
+remove(list = ls())
+```
+
+
+## Diff. Gene Expression
+```{r 18, eval=TRUE, message=FALSE, warning=FALSE}
+# Purpose: SCTransform of 1mo and 6mo NSCs to maximise no. of Pearson Residuals returned and DGE ----
+# Load data and subset cell of interest, return all Pearson Residuals by re-applying SCTransform
+#first analysis: DGE of dormant NSCs in 6 vs 1 month old mice. First remove 2-mo old cells and active cells. 
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$Age
+nsc.integrated <- subset(nsc.integrated, idents = "2mo", invert = TRUE)
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+nsc.integrated <- subset(nsc.integrated, idents = "active", invert = TRUE)
+nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE, verbose = FALSE)
+
+# Determine sig genes and FDR adjust p-value
+Idents(nsc.integrated) <- nsc.integrated$Age
+sig_genes_age <- FindMarkers(nsc.integrated, assay = "SCT", slot = "scale.data", ident.1 = "6mo",
+                             ident.2 = "1mo", min.pct = 0.0, 
+                             logfc.threshold = 0, test.use = "t")
+sig_genes_pvalue <- sig_genes_age$p_val
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
+sig_genes_age$p_val_adj <- FDR
+sig_genes_age <- sig_genes_age %>% filter(pct.1 >= 0.2|pct.2>= 0.2)
+
+# save spreadsgeet
+setwd("spreadsheets/")
+write.csv(sig_genes_age, "sig_genes_age.csv")
+DT::datatable(sig_genes_age, colnames = c('gene' = 1))
+setwd("..")
+remove(list = ls())
+
+
+# Purpose :SCTransform of NSCs to maximise no. of Pearson Residuals returned and DGE of resting vs dormant ----
+# Load data
+load("nsc.RData")
+nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE, verbose = FALSE)
+
+# Determine sig genes
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+sig_genes_resting_dormant <- FindMarkers(nsc.integrated, assay = "SCT", ident.1 = "resting",
+                         ident.2 = "dormant", slot = "scale.data", min.pct = 0.0,
+                         logfc.threshold = 0, test.use = "t")
+sig_genes_pvalue <- sig_genes_resting_dormant$p_val
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
+sig_genes_resting_dormant$p_val_adj <- FDR
+sig_genes_resting_dormant <- sig_genes_resting_dormant %>% filter(pct.1 >= 0.2|pct.2 >= 0.2)
+
+setwd("spreadsheets/")
+write.csv(sig_genes_resting_dormant, "sig_genes_resting_dormant.csv")
+DT::datatable(sig_genes_resting_dormant, colnames = c('gene' = 1))
+setwd("..")
+remove(list = ls())
+
+# Purpose :SCTransform of NSCs to maximise no. of Pearson Residuals returned and DGE of resting vs active ----
+
+# Load data
+load("nsc.RData")
+nsc.integrated <- SCTransform(nsc.integrated, return.only.var.genes = FALSE, verbose = FALSE)
+
+# Determine sig genes
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+sig_genes_resting_active <- FindMarkers(nsc.integrated, assay = "SCT", ident.1 = "resting",
+                         ident.2 = "active", slot = "scale.data", min.pct = 0.0, 
+                         logfc.threshold = 0, test.use = "t")
+sig_genes_pvalue <- sig_genes_resting_active$p_val
+FDR <- p.adjust(sig_genes_pvalue, "fdr")
+sig_genes_resting_active$p_val_adj <- FDR
+sig_genes_resting_active <- sig_genes_resting_active %>% filter(pct.1 >= 0.2| pct.2 >= 0.2)
+
+setwd("spreadsheets/")
+write.csv(sig_genes_resting_active, "sig_genes_resting_active.csv")
+DT::datatable(sig_genes_resting_active, colnames = c('gene' = 1))
+setwd("..")
+remove(list = ls())
+```
+
+
+
+
+## Gene. Ontology
+```{r 19}
+# Gene ontology of all differentially expressed genes ----
+# 6 month dormant NSCs vs 1 month dormant NSCs 
+setwd("spreadsheets/")
+ageGO <- read_csv(file = "sig_genes_age.csv") %>%
+  filter(p_val_adj < 0.05) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(ageGO@result, "ageGO.csv")
+setwd("..")
+
+# RestingvsDormant
+setwd("spreadsheets/")
+rest_dorm_GO <- read_csv(file = "sig_genes_resting_dormant.csv") %>%
+  filter(p_val_adj < 0.05) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+                ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_dorm_GO@result, "rest_dorm_GO.csv")
+setwd("..")
+
+# Restingvsactive
+setwd("spreadsheets/")
+rest_active_GO <- read_csv(file = "sig_genes_resting_active.csv") %>%
+  filter(p_val_adj < 0.05) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_active_GO@result, "rest_active_GO.csv")
+setwd("..")
+
+# Gene ontology of all upregulated genes ----
+
+# 1vs6 upregulated
+setwd("spreadsheets/")
+ageGO <- read_csv(file = "sig_genes_age.csv") %>%
+  filter(p_val_adj < 0.05 & avg_diff > 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+                ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(ageGO@result, "age_upreg_GO.csv")
+setwd("..")
+
+# RestingvsDormant upregulated
+setwd("spreadsheets/")
+rest_dorm_GO <- read_csv(file = "sig_genes_resting_dormant.csv") %>%
+  filter(p_val_adj < 0.05 & avg_diff > 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_dorm_GO@result, "rest_dorm_upreg_GO.csv")
+setwd("..")
+
+# RestingvsActive upregulated
+setwd("spreadsheets/")
+rest_active_GO <- read_csv(file = "sig_genes_resting_active.csv")%>%
+  filter(p_val_adj < 0.05 & avg_diff > 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_active_GO@result, "rest_active_upreg_GO.csv")
+setwd("..")
+
+# Gene ontology of all downregulated genes ----
+
+# 1vs6 downregulated
+setwd("spreadsheets/")
+ageGO <- read_csv(file = "sig_genes_age.csv") %>%
+  filter(p_val_adj < 0.05 & avg_diff < 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(ageGO@result, "age_downreg_GO.csv")
+setwd("..")
+
+# RestingvsDormant downregulated
+setwd("spreadsheets/")
+rest_dorm_GO <- read_csv(file = "sig_genes_resting_dormant.csv") %>%
+  filter(p_val_adj < 0.05 & avg_diff < 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_dorm_GO@result, "rest_dorm_downreg_GO.csv")
+setwd("..")
+
+# Restingvsactive downregulated
+setwd("spreadsheets/")
+rest_active_GO <- read_csv(file = "sig_genes_resting_active.csv") %>%
+  filter(p_val_adj < 0.05 & avg_diff < 0) %>%
+  pull(X1) %>%
+  enrichGO(OrgDb = org.Mm.eg.db, keyType = 'SYMBOL', 
+           ont = "BP", pAdjustMethod = "BH", pvalueCutoff  = 0.05, qvalueCutoff  = 0.05)
+write_csv(rest_active_GO@result, "rest_active_downreg_GO.csv")
+setwd("..")
+
+# End Script 7 —---
+```
+
+
+
+
+
+
+## Figures
+### Figure 4
+#### All clusters
+Visualisation of all data, with cluster labelling.
+
+```{r}
+# Visualisation of all cellular clusters ----
+load("all_data_all_clusters.RData")
+DimPlot(seurat_object.integrated, reduction = "umap", label = TRUE)
+# create list of all numbered cluster names
+current.cluster.ids <- c("0","1","2","3","4","5","6","7","8","9","10","11","12", "13", "14", "15")
+new.cluster.ids <- c("OPCs","MOGs","Neuroblasts","NSCs","Microglia","NSC/IPCs","Astrocytes","Endo","activ. Microglia","Endo","COPs","OPCs","multiplets", "OPCs", "Interneuron", "VLMC")
+# current cluster names replaced with new names
+seurat_object.integrated@active.ident <- plyr::mapvalues(x = seurat_object.integrated@active.ident, from = current.cluster.ids, to = new.cluster.ids)
+#add to metadata 
+seurat_object.integrated <- AddMetaData(object = seurat_object.integrated, metadata = seurat_object.integrated@active.ident, col.name = "Cluster") 
+A <- DimPlot(seurat_object.integrated, reduction = "umap", label = FALSE)
+A <- A + theme_minimal()
+A
+ggsave(filename = "plots/all_cluters_labelled.png", width = 9, height = 5, scale = 0.618)
+rm(list = ls())
+```
+
+#### Pseudotemporal ordering
+```{r}
+#Pseudotime_ordering ----
+load("nsc.Rdata")
+nsc.integrated <- NormalizeData(nsc.integrated, verbose = FALSE)
+seurat <- nsc.integrated
+seurat.sce <- as.SingleCellExperiment(seurat, assay = "RNA")
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+pseudotimevalues <- slingPseudotime(seurat.sce.sling)
+Age <- seurat.sce.sling@colData@listData$Age
+quiescence <- seurat.sce.sling@colData@listData$quiescence
+pseudotimevalues <- cbind(pseudotimevalues, Age)
+pseudotimevalues <- cbind(pseudotimevalues, quiescence)
+cell_embeddings <- as.data.frame(seurat@reductions[["umap"]]@cell.embeddings)
+pseudotime <- seurat.sce.sling$slingPseudotime_1
+cell_embeddings <- cbind(cell_embeddings, pseudotime)
+c = ggplot(cell_embeddings, aes(UMAP_1, UMAP_2))
+c1 = c + geom_point(aes(colour = pseudotime))
+c2 = c1 + scale_colour_gradient(low="blue4", high="red")
+c3 <- c2 + theme_minimal()
+c4 <- c3 + NoLegend()
+c4
+ggsave(filename = "plots/pseudotime_shading_umap.png", width = 10, scale = 0.618)
+rm(list = ls())
+```
+
+#### Pseudotemporal gene expression
+```{r}
+# Apoe & Ccnd2 expression vs pseudotime in GGPLOT ----
+load("nsc.Rdata")
+rnagenes <- t(GetAssayData(nsc.integrated, assay = "RNA", slot = "counts"))
+rnagenes <- as.data.frame(rnagenes[ , c("Apoe","Ccnd2")])
+pseudotime_nsc <- read_csv("spreadsheets/pseudotime_NSC.csv")
+pseudotime_nsc$Apoe <- rnagenes$Apoe
+pseudotime_nsc$Ccnd2 <- rnagenes$Ccnd2
+apoe <- ggplot(pseudotime_nsc, aes(x = curve1, y = Apoe)) %>%
+  + geom_point(aes(color = curve1)) + 
+  scale_color_gradient(low = "blue4", high = "red") 
+apoe + geom_smooth(method = "loess", color = "black") + theme_minimal()
+dir.create("plots")
+ggsave("plots/apoe.png", width = 5, height = 2.2)
+ccnd2 <- ggplot(pseudotime_nsc, aes(x = curve1, y = Ccnd2)) %>%
+  + geom_point(aes(color = curve1)) + 
+  scale_color_gradient(low = "blue4", high = "red") 
+ccnd2 + geom_smooth(method = "loess", color = "black") + theme_minimal()
+ggsave("plots/ccnd2.png", width = 5, height = 2.2)
+rm(list = ls())
+```
+
+
+#### NSCs grouped by states
+NSCs grouped by states. Shown are UMAP and Violin plots, with statistical analysis. 
+```{r}
+#NSCs_grouped_by_states ----
+load("nsc.Rdata")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+A <- DimPlot(nsc.integrated, reduction = "umap", group.by = "quiescence", order = c("resting"), cols = c("red", "blue4", "cyan1"), pt.size = 2)
+A <- A + theme_minimal()
+A <- A + NoLegend() + labs(title = "")
+A
+ggsave(filename = "plots/nscs_dormant_resting_proliferating.png", width = 10, scale = 0.618)
+rm(list = ls())
+```
+
+```{r}
+#NSCs_grouped_by_states_violinplots ----
+pseudotime_NSC <- read.csv("spreadsheets/pseudotime_NSC.csv")
+pseudotime_NSC$quiescence <- factor(pseudotime_NSC$quiescence, levels = c("dormant", "resting", "active"))
+h = ggplot(pseudotime_NSC, aes(quiescence, curve1))
+h1 = h + geom_violin()
+h2 = h1 + geom_violin(aes(fill = quiescence))
+h3 = h2 + geom_jitter(aes(alpha = 0.001, shape = "0.01"))
+h4 = h3 + labs(y = "Cell Order", x = "Quiescent Subtype", title = "Pseudotime position") + theme_minimal()
+h5 <- h4 + guides(fill = "none", shape = "none", alpha = "none")
+h5 <- h5 + scale_fill_manual(values=c("blue4", "cyan", "red"))
+h5
+ggsave(filename = "plots/NSCs_grouped_states.png", width = 6, scale = 1)
+```
+
+```{r}
+#NSCs_grouped_by_states - statistics ----
+pseudotime_NSC <- read.csv("spreadsheets/pseudotime_NSC.csv")
+dormant <- pseudotime_NSC %>% 
+  filter(quiescence == "dormant") %>%
+  pull(curve1)
+resting <- pseudotime_NSC %>% 
+  filter(quiescence == "resting") %>%
+  pull(curve1)
+active <- pseudotime_NSC %>% 
+  filter(quiescence == "active") %>%
+  pull(curve1)
+#data is non-parametric perform wilcox.test (mann-whitney because they are not paired)
+wilcox.test(dormant, resting, paired = FALSE, conf.int = TRUE)
+wilcox.test(dormant, active, paired = FALSE, conf.int = TRUE)
+wilcox.test(resting, active, paired = FALSE, conf.int = TRUE)
+rm(list = ls())
+
+```
+
+
+#### Dormant NSCs grouped by age
+```{r}
+#Dormant NSCs grouped by age ----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+nsc.integrated <- subset(nsc.integrated, idents = "dormant")
+Idents(nsc.integrated) <- nsc.integrated$Age
+DimPlot(nsc.integrated, group.by = "Age", pt.size = 1.5, order = c("6mo", "2mo", "1mo"), cols = c("yellow2", "orange2", "purple4")) %>%
+  + theme_minimal() %>% 
+  + NoLegend() + labs(title = "")
+ggsave(filename = "plots/dormantNSCs_grouped_age.png", width = 5, height = 3.2)
+
+#Dormant NSCs grouped by age - Violin plots ----
+pseudotime_NSC <- read.csv("spreadsheets/pseudotime_NSC.csv")
+dormantonly <- subset.data.frame(pseudotime_NSC, pseudotime_NSC$quiescence == "dormant")
+g = ggplot(dormantonly, aes(Age, curve1))
+g1 = g + geom_violin()
+g2 = g + geom_violin(aes(fill = Age))
+g3 = g2 + geom_jitter(aes(alpha = 0.01, shape = "0.01"))
+g4 = g3 + labs(y = "Cell Order", title = "Pseudotime") + theme_minimal()
+g4 = g4 + labs(legend = NULL) + ylim(0, 12)
+g5 <- g4 + guides(fill = "none", shape = "none", alpha = "none")
+g5 <- g5 + scale_fill_manual(values=c("yellow2", "orange2", "purple4"))
+g5
+ggsave(filename = "plots/dormantNSCs_grouped_age_violin.png", width = 5, height = 5)
+
+#Dormant NSCs grouped by age - statistics ----
+pseudotime_NSC <- read.csv("spreadsheets/pseudotime_NSC.csv")
+dormantonly <- pseudotime_NSC %>%
+  filter(quiescence == "dormant")
+one_month_dormant <- subset(dormantonly, dormantonly$Age == "1mo")
+one_month_dormant <- one_month_dormant$curve1
+two_month_dormant <- subset(dormantonly, dormantonly$Age == "2mo")
+two_month_dormant <- two_month_dormant$curve1
+six_month_dormant <- subset(dormantonly, dormantonly$Age == "6mo")
+six_month_dormant <- six_month_dormant$curve
+wilcox.test(one_month_dormant, six_month_dormant, paired = FALSE, conf.int = TRUE)
+wilcox.test(two_month_dormant, six_month_dormant, paired = FALSE, conf.int = TRUE)
+wilcox.test(one_month_dormant, two_month_dormant, paired = FALSE, conf.int = TRUE)
+kruskal.test(list(one_month_dormant, two_month_dormant, six_month_dormant))
+```
+
+
+### Figure 5
+#### Diff. gene. quiescent states
+Plots of example genes that show differential expression between resting, dormant and proliferating (active) staes
+```{r}
+# Differential gene expression graphs of resting, dormant and active NSCs ----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+DefaultAssay(object = nsc.integrated) <- "RNA"
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA", verbose = FALSE)
+nsc.integrated$quiescence <- as.factor(nsc.integrated$quiescence)
+nsc.integrated$quiescence <- factor(nsc.integrated$quiescence, levels = c("dormant", "resting", "active"))
+V1 <- VlnPlot(nsc.integrated, features = "Mcm2", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V2 <- VlnPlot(nsc.integrated, features = "Mcm6", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V3 <- VlnPlot(nsc.integrated, features = "Mcm3", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V4 <- VlnPlot(nsc.integrated, features = "Id4", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V5 <- VlnPlot(nsc.integrated, features = "Clu", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL)
+V6 <- VlnPlot(nsc.integrated, features = "Apoe", group.by = "quiescence", cols = c("blue4", "cyan1", "red"),  pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V7 <- VlnPlot(nsc.integrated, features = "Ran", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V8 <- VlnPlot(nsc.integrated, features = "Rps17", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V9 <- VlnPlot(nsc.integrated, features = "Rpl5", group.by = "quiescence", cols = c("blue4", "cyan1", "red"), pt.size = 0.5) + NoLegend() + labs(x = NULL, y = NULL) 
+V <- arrangeGrob(V1, V2, V3, V4, V5, V6, V7, V8, V9, nrow = 3)
+plot_grid(V1, V2, V3, V4, V5, V6, V7, V8, V9, ncol = 5)
+ggsave(filename = "plots/resting_vs_dormant_DGE.png", V, width = 8, height = 8, scale = 1)
+rm(list = ls())
+```
+
+
+
+### Figure 7
+#### Ascl1/Huwe1/ID4 vs Age
+```{r}
+# Ascl1/Huwe1/ID4 vs Age (1v6) in violin plots ----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$Age
+nsc.integrated <- subset(nsc.integrated, idents = "2mo", invert = TRUE)
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+nsc.integrated <- subset(nsc.integrated, idents = "active", invert = TRUE)
+Idents(nsc.integrated) <- nsc.integrated$Age
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA")
+DefaultAssay(object = nsc.integrated) <- "RNA"
+V1 <- VlnPlot(nsc.integrated, features = "Ascl1", group.by = "Age",pt.size = 0.2)  + NoLegend() + labs(x = NULL, y = NULL)
+V2 <- VlnPlot(nsc.integrated, features = "Id4", group.by = "Age", pt.size = 0.2) + NoLegend() + labs(x = NULL, y = NULL)
+V3 <- VlnPlot(nsc.integrated, features = "Huwe1", group.by = "Age", pt.size = 0.2) +ylim(0, 2.5) + NoLegend() + labs(x = NULL, y = NULL)
+G <- arrangeGrob(V1, V2, V3, nrow = 1)
+plot_grid(V1, V2, V3, ncol = 3)
+ggsave(filename = "plots/ascl1_huwe1_age.png", G, width = 5, height = 3, scale = 1)
+dev.off()
+rm(list = ls())
+```
+
+
+### Figure S3
+```{r}
+# Scoring tdtomato expression and adding to metadata ----
+load("all_data_all_clusters.RData")
+rnagenes <- t(GetAssayData(seurat_object.integrated, assay = "RNA", slot = "counts"))
+rnagenes <- as.data.frame(rnagenes[ , c("WPRE","tdTomatoLoxP", "bGHpolyA")])
+rnagenes$td <- rnagenes$WPRE + rnagenes$bGHpolyA
+seurat_object.integrated <- AddMetaData(object = seurat_object.integrated, metadata = rnagenes)
+
+# Create new objects  ----
+Idents(seurat_object.integrated) <- seurat_object.integrated$Batch
+seurat_object.integrated_Batch2 <- subset(seurat_object.integrated, idents = "2")
+
+
+# Visualise first sample wherein GFP+ and td+ cells were sequenced separately ----
+FeatureScatter(seurat_object.integrated_Batch2, feature1 = "td", 
+               feature2 = "tdTomatoLoxP", pt.size = 0.5, group.by = "cells", 
+               cols = c("green", "red")) + geom_line(aes(y = 3.5)) + geom_line(aes(x = 1.5)) + ylim(0, 20) + xlim(0, 10)
+ggsave(filename = "plots/tdtomato_cutoffs.png", width = 5, height = 3, scale = 1)
+
+
+# Enforcing of thresholds ----
+# V3 of kit - if count of td 4 or more and tdtomatoloxp less than 8 than cell is tdTomato positive. 
+seurat_object.integrated@meta.data$'tdthresh' <- ifelse(test = seurat_object.integrated@meta.data$'td' > 3 & seurat_object.integrated@meta.data$'Chemistry' == "V3", yes = seurat_object.integrated@meta.data$'td', no = 0) 
+seurat_object.integrated@meta.data$'tdthresh' <- ifelse(test = seurat_object.integrated@meta.data$'tdTomatoLoxP' > 7 & seurat_object.integrated@meta.data$'Chemistry' == "V3", yes = 0, no = seurat_object.integrated@meta.data$'tdthresh') 
+# V2 of kit - if count of td 2 or more and tdtomatoloxp less than 4 than cell is tdTomato positive. 
+seurat_object.integrated@meta.data$'tdthresh' <- ifelse(test = seurat_object.integrated@meta.data$'td' > 1 & seurat_object.integrated@meta.data$'Chemistry' == "V2", yes = seurat_object.integrated@meta.data$'td', no = seurat_object.integrated@meta.data$'tdthresh') 
+seurat_object.integrated@meta.data$'tdthresh' <- ifelse(test = seurat_object.integrated@meta.data$'tdTomatoLoxP' > 3 & seurat_object.integrated@meta.data$'Chemistry' == "V2", yes = 0, no = seurat_object.integrated@meta.data$'tdthresh')
+
+# Binarisation of tdTomato thresholds, td pos = 1 or td neg = 0 
+seurat_object.integrated@meta.data$'tdTomato+' <- ifelse(test = seurat_object.integrated@meta.data$'tdthresh' > 0 , yes = 1, no = 0)
+
+
+# plots ----
+DefaultAssay(seurat_object.integrated) <- "RNA"
+g1 <- FeaturePlot(seurat_object.integrated, features = "eGFP", split.by = "cells", max.cutoff = 1,order = TRUE)
+g2 <- FeaturePlot(seurat_object.integrated, features = "tdTomato+", split.by = "cells", max.cutoff = 1,order = TRUE)
+plot_grid(g1, g2, nrow = 2)
+G <- arrangeGrob(g1, g2, nrow = 2)
+ggsave(filename = "plots/tdtomato_cell_detection.png", G, width = 10, height = 7, scale = 1)
+
+```
+
+### Figure S4
+#### Visualisation of all cellular clusters
+```{r}
+load("all_data_all_clusters.RData")
+DimPlot(seurat_object.integrated, reduction = "umap", label = TRUE)
+# create list of all numbered cluster names
+current.cluster.ids <- c("0","1","2","3","4","5","6","7","8","9","10","11","12", "13", "14", "15")
+new.cluster.ids <- c("OPCs","MOGs","Neuroblasts","NSCs","Microglia","NSC/IPCs","Astrocytes","Endo","activ. Microglia","Endo","COPs","OPCs","multiplets", "OPCs", "Interneuron", "VLMC")
+# current cluster names replaced with new names
+seurat_object.integrated@active.ident <- plyr::mapvalues(x = seurat_object.integrated@active.ident, from = current.cluster.ids, to = new.cluster.ids)
+#add to metadata 
+seurat_object.integrated <- AddMetaData(object = seurat_object.integrated, metadata = seurat_object.integrated@active.ident, col.name = "Cluster") 
+A <- DimPlot(seurat_object.integrated, reduction = "umap", label = FALSE)
+A <- A + theme_minimal()
+A
+ggsave(filename = "plots/all_cluters_labelled.png", width = 9, height = 5, scale = 0.618)
+rm(list = ls())
+```
+
+#### Visualisation of genes used to isoldate NSCs and IPCs
+```{r}
+# Visualise expression to isolate NSCs & IPCs ----
+load("all_data_all_clusters.RData")
+DefaultAssay(object = seurat_object.integrated) <- "RNA"
+seurat_object.integrated <- NormalizeData(seurat_object.integrated)
+g1 <- FeaturePlot(object = seurat_object.integrated, features = "Aqp4",
+                  reduction = "umap", cols = c("grey","blue4"), order = TRUE, 
+                  pt.size = 0.1, combine = TRUE, ncol = 2, label.size = 0.5, max.cutoff = 5) 
+g2 <- FeaturePlot(object = seurat_object.integrated, features = "Hopx",
+                  reduction = "umap", cols = c("grey","blue4"), order = TRUE, 
+                  pt.size = 0.1, combine = TRUE, ncol = 2, label.size = 0.5, max.cutoff = 5)
+g3 <- FeaturePlot(object = seurat_object.integrated, features = "Eomes",
+                  reduction = "umap", cols = c("grey","blue4"), order = TRUE, 
+                  pt.size = 0.1, combine = TRUE, ncol = 2, label.size = 0.5, max.cutoff = 3)
+g4 <- FeaturePlot(object = seurat_object.integrated, features = "Neurod1",
+                  reduction = "umap", cols = c("grey","blue4"), order = TRUE, 
+                  pt.size = 0.1, combine = TRUE, ncol = 2, label.size = 0.5, max.cutoff = 4)
+cowplot::plot_grid(g1, g2, g3, g4)
+G <- arrangeGrob(g1, g2, g3, g4, nrow = 2)
+ggsave(filename = "plots/nsc_ipc_identification.png", G, width = 10, height = 7, scale = 1)
+rm(list = ls())
+```
+
+#### Visualiasation of two primary clusters (quiescent and cycling cells (NSCs and IPCs))
+```{r}
+# Visualise two primary clusters (quiescent and cycling cells (NSCs and IPCs)) ----
+load("nsc_ipc.RData")
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = TRUE) + theme_minimal()
+# create list of all numbered cluster names
+current.cluster.ids <- c("0", "1", "2","3","4","5","6","7","8","9")
+new.cluster.ids <- c("NSC", "NSC", "IPC/NSC","NSC","IPC/NSC","NSC","IPC/NSC","IPC/NSC","NSC","NSC")
+nsc_ipc.integrated@active.ident <- plyr::mapvalues(x = nsc_ipc.integrated@active.ident, from = current.cluster.ids, to = new.cluster.ids)
+DimPlot(nsc_ipc.integrated, reduction = "umap", label = FALSE) + theme_minimal()
+ggsave(filename = "plots/quiescent_cycling_NSPCs.png", width = 8, height = 5, scale = 0.618)
+rm(list = ls())
+```
+
+#### Visualiasation genes used to classify NSCs vs IPCs
+```{r}
+# Visualise classification of NSCs vs IPCs----
+load("nsc_ipc.RData")
+DefaultAssay(nsc_ipc.integrated) <- "RNA"
+nsc_ipc.integrated <- NormalizeData(nsc_ipc.integrated)
+g3 <- FeaturePlot(object = nsc_ipc.integrated, features = "Apoe",
+                  reduction = "umap", cols = c("grey","blue4"), order = FALSE, coord.fixed = TRUE,
+                  pt.size = 0.5, label.size = 0.5, max.cutoff = 4) + theme_void()
+g5 <- FeaturePlot(object = nsc_ipc.integrated, features = "Hopx",
+                  reduction = "umap", cols = c("grey","blue4"), order = FALSE, coord.fixed = TRUE,
+                  pt.size = 0.5, label.size = 0.5, max.cutoff = 1) + theme_void()
+g16 <- FeaturePlot(object = nsc_ipc.integrated, features = "Neurod1",
+                   reduction = "umap", cols = c("grey","blue4"), order = FALSE, coord.fixed = TRUE,
+                   pt.size = 0.5,  label.size = 0.5, max.cutoff = 1) + theme_void()
+g22 <- FeaturePlot(object = nsc_ipc.integrated, features = "Dcx",
+                   reduction = "umap", cols = c("grey","blue4"), order = FALSE, coord.fixed = TRUE,
+                   pt.size = 0.5, label.size = 0.5, max.cutoff = 1) + theme_void()
+cowplot::plot_grid(g3, g5, g16, g22)
+g <- arrangeGrob(g3, g5, g16, g22, nrow = 2)
+ggsave(file="plots/nsc_classification.png", g, width = 6, scale = 1) 
+rm(list = ls())
+
+```
+
+
+
+### Figure S5
+#### G0/G1 thresholding - hourglass plots 
+```{r}
+#script to determine threshold for calling cells in G0/G1 ----
+#load NSCs and IPCs
+load("nsc_ipc.RData")
+
+#nsc_ipc.integrated <- NormalizeData(nsc_ipc.integrated)
+DefaultAssay(nsc_ipc.integrated) <- "RNA"
+
+#add cc phase and plot
+s.genes <- cc.genes$s.genes
+g2m.genes <- cc.genes$g2m.gene
+s.genes <- tolower(s.genes)
+g2m.genes <- tolower(g2m.genes)
+s.genes <- R.utils::capitalize(s.genes)
+g2m.genes <- R.utils::capitalize(g2m.genes)
+nsc_ipc.integrated <- CellCycleScoring(nsc_ipc.integrated, s.features = s.genes, g2m.features = g2m.genes, set.ident = TRUE)
+nsc_ipc.integrated$CC.Difference <- nsc_ipc.integrated$S.Score - nsc_ipc.integrated$G2M.Score
+DimPlot(nsc_ipc.integrated, features = "Phase")
+ggsave(filename = "plots/phase.png", width = 6, height = 4, scale = 1)
+
+#extract bona-fide cells in S-phase 
+Idents(nsc_ipc.integrated) <- nsc_ipc.integrated$Phase
+s_phase <- subset(nsc_ipc.integrated, idents = "S")
+DimPlot(s_phase)
+
+
+#extract bona-fide qNSCs and label these as such in the metadata
+Idents(nsc_ipc.integrated) <- nsc_ipc.integrated$integrated_snn_res.0.7
+DimPlot(nsc_ipc.integrated, label = TRUE)
+nsc_ipc.integrated$Phase <- as.character(nsc_ipc.integrated$Phase)
+nsc_ipc.integrated$Phase <- ifelse(nsc_ipc.integrated$integrated_snn_res.0.7 == "1", yes = "G0", no = nsc_ipc.integrated$Phase)
+bona_qnsc <- subset(nsc_ipc.integrated, idents = "1")
+DimPlot(bona_qnsc)
+
+#merge bona-fide qNSCs and s-phase NSPCs
+s_qnsc <- merge(x = s_phase, y = bona_qnsc)
+
+#Add G1 index genes
+DefaultAssay(s_qnsc) <- "RNA"
+s_qnsc[["percentMCM2"]]<- PercentageFeatureSet(s_qnsc, pattern = "Mcm2")
+s_qnsc[["percentMCM3"]] <- PercentageFeatureSet(s_qnsc, pattern = "Mcm3")
+s_qnsc[["percentMCM4"]] <- PercentageFeatureSet(s_qnsc, pattern = "Mcm4")
+s_qnsc[["percentMCM5"]] <- PercentageFeatureSet(s_qnsc, pattern = "Mcm5")
+s_qnsc[["percentMCM6"]] <- PercentageFeatureSet(s_qnsc, pattern = "Mcm6")
+s_qnsc[["percentMCM7"]] <- PercentageFeatureSet(s_qnsc, pattern = "Mcm7")
+s_qnsc[["percentCCNE1"]] <- PercentageFeatureSet(s_qnsc, pattern = "Ccne1")
+s_qnsc[["percentCCNE2"]] <- PercentageFeatureSet(s_qnsc, pattern = "Ccne2")
+s_qnsc[["percentPCNA"]] <- PercentageFeatureSet(s_qnsc, pattern = "Pcna")
+#Binarise
+s_qnsc@meta.data$'percentMCM2' <- ifelse(test = s_qnsc@meta.data$'percentMCM2' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentMCM3' <- ifelse(test = s_qnsc@meta.data$'percentMCM3' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentMCM4' <- ifelse(test = s_qnsc@meta.data$'percentMCM4' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentMCM5' <- ifelse(test = s_qnsc@meta.data$'percentMCM5' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentMCM6' <- ifelse(test = s_qnsc@meta.data$'percentMCM6' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentMCM7' <- ifelse(test = s_qnsc@meta.data$'percentMCM7' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentCCNE1' <- ifelse(test = s_qnsc@meta.data$'percentCCNE1' > 0, yes = 1, no = 0) 
+s_qnsc@meta.data$'percentCCNE2' <- ifelse(test = s_qnsc@meta.data$'percentCCNE2' > 0, yes = 1, no = 0)
+s_qnsc@meta.data$'percentPCNA' <- ifelse(test = s_qnsc@meta.data$'percentPCNA' > 0, yes = 1, no = 0)
+
+#Add G1-index genes together
+s_qnsc[["G1_index"]] <- (s_qnsc@meta.data$'percentMCM2' 
+                                 + s_qnsc@meta.data$'percentMCM3'
+                                 + s_qnsc@meta.data$'percentMCM4' 
+                                 + s_qnsc@meta.data$'percentMCM5'
+                                 + s_qnsc@meta.data$'percentMCM6'
+                                 + s_qnsc@meta.data$'percentMCM7'
+                                 +s_qnsc@meta.data$'percentCCNE1'
+                                 +s_qnsc@meta.data$'percentCCNE2'
+                                +s_qnsc@meta.data$'percentPCNA' )
+                  
+Idents(s_qnsc) <- s_qnsc$Chemistry
+v3_s_qnsc <- subset(s_qnsc, idents = "V3")
+v2_s_qnsc <- subset(s_qnsc, idents = "V2")
+VlnPlot(s_qnsc, features = "G1_index")
+#here the G1 cells correspond to the bona-fide G0, this just hasn't been updated in the metadata
+V1 <- VlnPlot(v3_s_qnsc, features = "G1_index", group.by = "Phase")
+V2 <- VlnPlot(v2_s_qnsc, features = "G1_index", group.by = "Phase")
+plot_grid(V1, V2, nrow = 2)
+G <- arrangeGrob(V1, V2, ncol = 2)
+ggsave(filename = "plots/hourglass.png", G, width = 4, height = 6, scale = 1)
+rm(list =ls())
+
+```
+
+#### Plotting of MCM2/6 and testing of an independent set of pan G1/S genes
+```{r}
+#Independent pan-set of genes ----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+DefaultAssay(object = nsc.integrated) <- "RNA"
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA")
+nsc.integrated$quiescence <- as.factor(nsc.integrated$quiescence)
+nsc.integrated$quiescence <- factor(nsc.integrated$quiescence, levels = c("dormant", "resting", "active"))
+V7 <- VlnPlot(nsc.integrated, features = "Gins1", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V8 <- VlnPlot(nsc.integrated, features = "Gins2", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V9 <- VlnPlot(nsc.integrated, features = "Gins4", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V10 <- VlnPlot(nsc.integrated, features = "E2f1", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V11 <- VlnPlot(nsc.integrated, features = "E2f3", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V12 <- VlnPlot(nsc.integrated, features = "Cdt1", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+plot_grid(V7, V8, V9, V10, V11, V12, nrow = 2)
+G <- arrangeGrob(V7, V8, V9, V10, V11, V12, nrow = 2)
+ggsave(filename = "plots/independent_pan_G1_S.png", G, width = 12, height = 8, scale = 1)
+
+V13 <- VlnPlot(nsc.integrated, features = "Mcm2", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V14 <- VlnPlot(nsc.integrated, features = "Mcm6", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+plot_grid(V13, V14, nrow = 1)
+G <- arrangeGrob(V13, V14, nrow = 1)
+ggsave(filename = "plots/MCM2_MCM6.png", G, width = 8, height = 5, scale = 1)
+dev.off()
+rm(list = ls())
+```
+
+#### No of mRNA molecules and gene per cell
+```{r}
+#No of mRNA and gens per cell----
+load("nsc.RData")
+Idents(nsc.integrated) <- nsc.integrated$quiescence
+DefaultAssay(object = nsc.integrated) <- "RNA"
+nsc.integrated <- NormalizeData(nsc.integrated, assay = "RNA")
+nsc.integrated$quiescence <- as.factor(nsc.integrated$quiescence)
+nsc.integrated$quiescence <- factor(nsc.integrated$quiescence, levels = c("dormant", "resting", "active"))
+V1 <- VlnPlot(nsc.integrated, features = "nFeature_RNA", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+V2 <- VlnPlot(nsc.integrated, features = "nCount_RNA", group.by = "quiescence", cols = c("blue4", "cyan1", "red")) + NoLegend() + labs(x = NULL, y = NULL)
+plot_grid(V1, V2, nrow = 1)
+G <- arrangeGrob(V1, V2, nrow = 1)
+ggsave(filename = "plots/RNA_GENES.png", G, width = 8, height = 4, scale = 1)
+rm(list = ls())
+```
+
+## Appendix
+```{r, eval = FALSE}
+# Slingshot of all NSCs ----
+load("nsc.RData")
+nsc.integrated <- NormalizeData(nsc.integrated)
+seurat <- nsc.integrated
+seurat.sce <- as.SingleCellExperiment(seurat, assay = "RNA")
+DimPlot(nsc.integrated)
+seurat.sce.sling <- slingshot(seurat.sce, reducedDim = 'UMAP')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+
+# look at the 2000 most variable genes
+Y <- log1p(SummarizedExperiment::assays(seurat.sce.sling)$logcounts)
+var1K <- names(sort(apply(Y,1,var),decreasing = TRUE))[1:2000]
+Y <- Y[var1K,]
+
+
+# fit a GAM with a loess term for pseudotime
+t <- seurat.sce.sling$slingPseudotime_1
+gam.pval_guillemot <- apply(Y,1,function(z){
+  d <- data.frame(z=z, t=t)
+  tmp <- gam(z ~ lo(t), data=d)
+  p <- summary(tmp)[4][[1]][1,5]
+  p
+})
+gam.pval_guillemot <- as.data.frame(gam.pval_guillemot) %>%
+  rownames_to_column(var = "genes") %>%
+  filter(gam.pval_guillemot < 0.01)
+
+##### Shin et al
+
+input_file <- "GSE71485_Single_TPM.txt"
+tpm <- read.delim(input_file)
+seurat_object <- CreateSeuratObject(counts = tpm, 
+                                    project = "Waterfall", min.cells = 3, min.features = 1)
+
+
+#Add MT content
+seurat_object[["percentMito"]] <- PercentageFeatureSet(seurat_object, pattern = "^Mt")
+mitoHi <- 10
+nGeneLo <- 500
+seurat_object <- subset(x = seurat_object, subset = nFeature_RNA > nGeneLo & percentMito < mitoHi)
+
+seurat_object.features <- FindVariableFeatures(seurat_object, nfeatures = 3000)
+seurat_object.features <- ScaleData(seurat_object.features)
+seurat_object <- RunPCA(seurat_object.features, verbose = TRUE)
+sigPC <- 5
+seurat_object <- RunUMAP(seurat_object, dims = 1:sigPC)
+seurat_object <- FindNeighbors(seurat_object, reduction = "pca", dims = 1:sigPC)
+seurat_object <- FindClusters(seurat_object, resolution = 0.5)
+DimPlot(seurat_object, dims = c(1, 2), reduction = "umap", label = TRUE)
+seurat_object <- NormalizeData(seurat_object, assay = "RNA")
+#FeaturePlot(seurat_object, "Hopx", reduction = "umap")
+#FeaturePlot(seurat_object, "Eomes", reduction = "umap")
+#FeaturePlot(seurat_object, "Ccnd2", reduction = "umap")
+#FeaturePlot(seurat_object, "CFP",reduction = "umap")
+
+seurat_object <- subset(seurat_object, idents = c("0", "2"))
+seurat_object <- NormalizeData(seurat_object, assay = "RNA")
+
+
+#Slingshot - identifying pseudotime genes
+seurat <- seurat_object
+seurat.sce <- as.SingleCellExperiment(seurat, assay = "RNA")
+seurat.sce.sling <- slingshot(seurat.sce, clusterLabels = seurat@active.ident, start.clus = "0", reducedDim = 'UMAP')
+colors <- colorRampPalette(brewer.pal(11,'Spectral')[-6])(100)
+plotcol <- colors[cut(seurat.sce.sling$slingPseudotime_1, breaks=100)]
+plot(reducedDims(seurat.sce.sling)$UMAP, col = plotcol, pch=16, asp = 1)
+lines(SlingshotDataSet(seurat.sce.sling), lwd=2, col='black')
+t <- seurat.sce.sling$slingPseudotime_1
+SummarizedExperiment::assayNames(seurat.sce.sling)
+
+
+# look at the 2000 most variable genes
+Y <- log1p(SummarizedExperiment::assays(seurat.sce.sling)$logcounts)
+var1K <- names(sort(apply(Y,1,var),decreasing = TRUE))[1:2000]
+Y <- Y[var1K,]
+
+# fit a GAM with a loess term for pseudotime
+t <- seurat.sce.sling$slingPseudotime_1
+gam.pval <- apply(Y,1,function(z){
+  d <- data.frame(z=z, t=t)
+  tmp <- gam(z ~ lo(t), data=d)
+  p <- summary(tmp)[4][[1]][1,5]
+  p
+})
+gam.pval_shin <- as.data.frame(gam.pval) %>%
+  rownames_to_column(var = "genes") %>%
+  filter(gam.pval < 0.01)
+
+intersect(gam.pval_guillemot$genes, gam.pval_shin$genes)
+
+length(intersect(rownames(seurat_object@assays$RNA@counts), rownames(nsc.integrated@assays$RNA@counts)))
+```
+
