@@ -1,7 +1,7 @@
 # lifelong_stemcells
 
 ## Harris at al. 2021
-The directory [scripts/](scripts/) contains R scripts, the directory [markdown/](markdown/) contains a R Markdown and HTML file corresponding to our publication in Cell Stem Cell [**Coordinated changes in cellular behaviour ensure the lifelong maintenance of the hippocampal stem cell population**](https://www.sciencedirect.com/science/article/pii/S1934590921000035). 
+The directory [scripts/](scripts/) contains R scripts, the directory [markdown/](markdown/) contains a R Markdown and HTML file corresponding to our publication [**Coordinated changes in cellular behaviour ensure the lifelong maintenance of the hippocampal stem cell population**](https://www.sciencedirect.com/science/article/pii/S1934590921000035), published in Cell Stem Cell (2021). 
 
 The count matrix can be accessed from the **Gene Expression Omnibus** [GSE159768](https://www.ncbi.nlm.nih.gov/geo/query/acc.cgi?acc=GSE159768) by downloading the barcodes.tsv.gz, features.tsv.gz, matrix.mtx.gz files. Please delete the GSE159768 file prefix before reading into R using Seurat::Read10X function, as in script_01. Raw FASTQ files are also available.
 
